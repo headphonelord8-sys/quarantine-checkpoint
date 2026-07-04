@@ -3,216 +3,395 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bio-Guard: Quarantine Checkpoint</title>
+    <title>Bio-Guard 3D: Quarantine Checkpoint</title>
     <style>
         body {
-            background-color: #1a1a1a;
-            color: #d4d4d4;
-            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', monospace;
+            user-select: none;
+        }
+        /* 3D Canvas space */
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        /* Cinematic UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none; /* Let clicks pass through to 3D world */
             display: flex;
             flex-direction: column;
-            align-items: center;
+            justify-content: space-between;
             padding: 20px;
+            box-sizing: border-box;
         }
-        #game-container {
-            background-color: #2d2d2d;
-            border: 4px solid #444;
-            border-radius: 8px;
-            padding: 20px;
-            width: 450px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-        }
-        .header {
-            text-align: center;
-            border-bottom: 2px solid #555;
-            padding-bottom: 10px;
-            margin-bottom: 15px;
-        }
-        .stats {
+        .interactive { pointer-events: auto; } /* Re-enable for HUD buttons */
+        
+        .hud-header {
             display: flex;
             justify-content: space-between;
-            background: #1e1e1e;
-            padding: 8px;
-            border-radius: 4px;
-            font-weight: bold;
-        }
-        .booth {
-            background: #222;
-            border: 2px solid #ff5555;
+            background: rgba(15, 15, 15, 0.85);
+            border: 2px solid #333;
             padding: 15px;
-            margin: 15px 0;
+            color: #00ff00;
             border-radius: 4px;
-            min-height: 120px;
+            box-shadow: 0 0 15px rgba(0,255,0,0.1);
         }
-        .button-zone {
+        .hud-title { font-size: 18px; font-weight: bold; letter-spacing: 2px; }
+        .hud-stats { font-size: 16px; text-align: right; }
+
+        /* The Clipboard Display UI */
+        #passport-ui {
+            position: absolute;
+            bottom: 40px;
+            left: 40px;
+            width: 300px;
+            background: #e6dfc3;
+            color: #222;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 5px 5px 25px rgba(0,0,0,0.7);
+            border: 3px solid #8a8265;
+            transform: rotate(-2deg);
+        }
+        #passport-ui h3 { margin-top: 0; border-bottom: 2px solid #555; padding-bottom: 5px; font-size: 16px; color: #611; }
+        #passport-ui p { margin: 8px 0; font-size: 13px; font-weight: bold; }
+        
+        /* Control Dashboard on Desk */
+        .dash-panel {
+            position: absolute;
+            bottom: 40px;
+            right: 40px;
+            background: rgba(30, 30, 30, 0.9);
+            border: 3px solid #444;
+            padding: 15px;
+            border-radius: 6px;
             display: flex;
-            justify-content: space-around;
-            margin-top: 15px;
+            flex-direction: column;
+            gap: 10px;
+            width: 220px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
-        button {
+        .dash-btn {
             font-family: 'Courier New', monospace;
             font-weight: bold;
-            padding: 12px 24px;
-            border: none;
+            padding: 12px;
+            border: 2px solid #555;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 14px;
+            color: white;
+            font-size: 13px;
+            text-shadow: 1px 1px 2px black;
+            transition: all 0.2s;
         }
-        .btn-approve { background-color: #2ecc71; color: white; }
-        .btn-deny { background-color: #e74c3c; color: white; }
-        .btn-action { background-color: #3498db; color: white; }
-        .btn-save { background-color: #f1c40f; color: black; width: 100%; margin-top: 10px;}
-        button:hover { opacity: 0.9; }
-        .log {
-            background: #111;
-            padding: 8px;
-            height: 40px;
-            font-size: 12px;
-            color: #00ff00;
-            overflow-y: auto;
-            border-radius: 4px;
+        .btn-scan { background: #2980b9; border-color: #3498db; }
+        .btn-approve { background: #27ae60; border-color: #2ecc71; }
+        .btn-deny { background: #c0392b; border-color: #e74c3c; }
+        .btn-save { background: #444; border-color: #666; font-size: 10px; padding: 6px; }
+        .dash-btn:hover { transform: scale(1.03); filter: brightness(1.1); }
+
+        /* System log alerts */
+        #alert-log {
+            align-self: center;
+            background: rgba(20, 5, 5, 0.9);
+            border: 1px solid #ff3333;
+            color: #ff5555;
+            padding: 10px 30px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.8; }
+            50% { opacity: 1; box-shadow: 0 0 10px rgba(255,0,0,0.3); }
+            100% { opacity: 0.8; }
         }
     </style>
+    <!-- Include Three.js via CDNs for full 3D support -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
-<div id="game-container">
-    <div class="header">
-        <h2>BORDER CONTROL: UNIT 04</h2>
-        <div class="stats">
-            <span>DAY: <span id="day-val">1</span></span>
-            <span>CASH: $<span id="cash-val">0</span></span>
+<div id="canvas-container"></div>
+
+<div id="ui-layer">
+    <!-- Top HUD -->
+    <div class="hud-header">
+        <div class="hud-title">QUARANTINE OUTPOST // 3D-GATE</div>
+        <div class="hud-stats">
+            DAY: <span id="day-val">1</span> | 
+            BUDGET: $<span id="cash-val">0</span>
         </div>
     </div>
 
-    <div class="log" id="system-log">System online. Next survivor approaching...</div>
+    <!-- Live Event Alerts -->
+    <div id="alert-log">STANDBY: Processing next vehicle/subject...</div>
 
-    <div class="booth">
-        <h4>SUBJECT DOCUMENTATION:</h4>
-        <div id="subject-details">
-            <!-- Loaded via JS -->
-        </div>
+    <!-- Floating Interactive Desk Workspace -->
+    <div class="interactive" id="passport-ui">
+        <h3>QUARANTINE ENTRY VISA</h3>
+        <p>NAME: <span id="ui-name">---</span></p>
+        <p>PURPOSE: <span id="ui-reason">---</span></p>
+        <p>DOC STATUS: <span id="ui-docs">---</span></p>
+        <p style="border-top: 1px dashed #999; padding-top: 8px;">
+            BIO-SCAN: <span id="ui-bio" style="color: #7f8c8d; font-weight: 900;">UNSCANNED</span>
+        </p>
     </div>
 
-    <div class="button-zone">
-        <button class="btn-action" onclick="useScanner()">RUN BIO-SCAN</button>
+    <!-- Mechanical Console Dashboard -->
+    <div class="dash-panel interactive">
+        <button class="dash-btn btn-scan" onclick="trigger3DScan()">[F1] RUN BIO-SCANNER</button>
+        <button class="dash-btn btn-approve" onclick="submitDecision(true)">[E] GRANT ENTRY</button>
+        <button class="dash-btn btn-deny" onclick="submitDecision(false)">[X] DENY ENTRY</button>
+        <button class="dash-btn btn-save" onclick="saveGame()">FORCE SYSTEM SAVE</button>
     </div>
-
-    <div class="button-zone">
-        <button class="btn-deny" onclick="processDecision(false)">DENY ENTRY</button>
-        <button class="btn-approve" onclick="processDecision(true)">APPROVE ENTRY</button>
-    </div>
-
-    <button class="btn-save" onclick="saveGame()">MANUAL SAVE TO LOCALSTORAGE</button>
 </div>
 
 <script>
-    // Game State variables
-    let gameState = {
-        day: 1,
-        cash: 0,
-        currentShiftPosition: 0
-    };
-
+    // --- GAME LOGIC STATE ---
+    let gameState = { day: 1, cash: 0, shiftCount: 0 };
     let currentSubject = {};
 
-    // Generate random survivor profiles
-    function generateSubject() {
-        const names = ["John Doe", "Alex Smith", "Elena Rostova", "Marcus Vance", "Sasha Braus"];
-        const reasons = ["Seeking medical refuge", "Looking for family", "Escaping the south sector", "I am completely healthy!"];
+    // --- 3D ENGINE VARIABLES ---
+    let scene, camera, renderer;
+    let deskMesh, scannerMesh, documentMesh, backgroundWall;
+    let scannerLight;
+
+    function init3D() {
+        const container = document.getElementById('canvas-container');
         
-        const isInfected = Math.random() < 0.5;
-        const hasForgedPapers = Math.random() < 0.3;
+        // 1. Create Scene & Dark Atmosphere
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0a0f);
+        scene.fog = new THREE.FogExp2(0x0a0a0f, 0.08);
+
+        // 2. Camera Setup (First Person Guard Desk Angle)
+        camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 2.5, 4.5);
+        camera.lookAt(0, 1.2, 0);
+
+        // 3. Renderer Setup
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        // 4. Lighting (Industrial, Grim Outpost Vibe)
+        const ambientLight = new THREE.AmbientLight(0x111116);
+        scene.add(ambientLight);
+
+        const deskSpotlight = new THREE.SpotLight(0xffffff, 1.5);
+        deskSpotlight.position.set(0, 6, 2);
+        deskSpotlight.angle = Math.PI / 4;
+        deskSpotlight.penumbra = 0.5;
+        deskSpotlight.castShadow = true;
+        scene.add(deskSpotlight);
+
+        // Red/Green Alert Light Indicator
+        scannerLight = new THREE.PointLight(0xff9900, 0.5, 5);
+        scannerLight.position.set(1.5, 2, 0.5);
+        scene.add(scannerLight);
+
+        // 5. Build 3D Geometries (The Guard Booth Workspace)
+        // Guard Counter/Desk
+        const deskGeo = new THREE.BoxGeometry(5, 1.2, 3);
+        const deskMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.7 });
+        deskMesh = new THREE.Mesh(deskGeo, deskMat);
+        deskMesh.position.set(0, 0.6, 0);
+        deskMesh.receiveShadow = true;
+        scene.add(deskMesh);
+
+        // 3D Quarantine Scanner Unit
+        const scannerGeo = new THREE.CylinderGeometry(0.3, 0.4, 1.2, 16);
+        const scannerMat = new THREE.MeshStandardMaterial({ color: 0x34495e, metalness: 0.6, roughness: 0.2 });
+        scannerMesh = new THREE.Mesh(scannerGeo, scannerMat);
+        scannerMesh.position.set(1.5, 1.6, 0.5);
+        scannerMesh.castShadow = true;
+        scene.add(scannerMesh);
+
+        // 3D Paper Document on Desk
+        const docGeo = new THREE.BoxGeometry(0.9, 0.02, 1.2);
+        const docMat = new THREE.MeshStandardMaterial({ color: 0xd6caa3, roughness: 0.9 });
+        documentMesh = new THREE.Mesh(docGeo, docMat);
+        documentMesh.position.set(-0.6, 1.22, 0.8);
+        documentMesh.rotation.y = -0.1;
+        scene.add(documentMesh);
+
+        // Background Wall / Gate Border Look
+        const wallGeo = new THREE.BoxGeometry(16, 10, 0.5);
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x1c1d22, roughness: 0.9 });
+        backgroundWall = new THREE.Mesh(wallGeo, wallMat);
+        backgroundWall.position.set(0, 4, -3);
+        scene.add(backgroundWall);
+
+        // Handle scaling adjustments
+        window.addEventListener('resize', onWindowResize, false);
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // --- ANIMATION LOOP ---
+    function animate() {
+        requestAnimationFrame(animate);
+
+        // Gentle idle structural animation for immersive feeling
+        const time = Date.now() * 0.001;
+        documentMesh.position.y = 1.21 + Math.sin(time * 2) * 0.004; // Paper breathing effect
+        
+        // Render step
+        renderer.render(scene, camera);
+    }
+
+    // --- GAMEPLAY SCRIPT CONTROLS ---
+    function generateNextSubject() {
+        const firstNames = ["Klaus", "Dimitri", "Sarah", "Viktor", "Elena", "Marcus"];
+        const lastNames = ["Vance", "Borza", "Kerr", "Petrov", "Glover", "Rostova"];
+        const reasons = ["Seeking Antiviral meds", "Returning to sector home", "Fleeing hot zone", "Work transfer order"];
+        
+        const isInfected = Math.random() < 0.45;
+        const forgedID = Math.random() < 0.30;
 
         currentSubject = {
-            name: names[Math.floor(Math.random() * names.length)],
+            name: `${firstNames[Math.floor(Math.random()*firstNames.length)]} ${lastNames[Math.floor(Math.random()*lastNames.length)]}`,
             reason: reasons[Math.floor(Math.random() * reasons.length)],
-            idStatus: hasForgedPapers ? "EXPIRED / INVALID" : "VALID",
-            bioStatus: isInfected ? "INFECTED (STAGE 1)" : "CLEAR",
-            scanned: false,
-            shouldDeny: isInfected || hasForgedPapers
+            idStatus: forgedID ? "FORGED / REVOKED SIGNATURE" : "CLEAR & VERIFIED",
+            bioStatus: isInfected ? "BIOMASS CONTAMINATED (POSITIVE)" : "CLEAN (NEGATIVE)",
+            isScanned: false,
+            shouldDeny: isInfected || forgedID
         };
 
-        renderSubject();
-    }
-
-    function renderSubject() {
-        const html = `
-            <p><strong>Name:</strong> ${currentSubject.name}</p>
-            <p><strong>Reason:</strong> "${currentSubject.reason}"</p>
-            <p><strong>Papers:</strong> ${currentSubject.idStatus}</p>
-            <p><strong>Scanner Results:</strong> <span id="scan-res">${currentSubject.scanned ? currentSubject.bioStatus : "UNSCANNED"}</span></p>
-        `;
-        document.getElementById("subject-details").innerHTML = html;
-    }
-
-    function useScanner() {
-        currentSubject.scanned = true;
-        document.getElementById("scan-res").innerText = currentSubject.bioStatus;
-        updateLog("Bio-scan complete. Look over the results closely.");
-    }
-
-    function processDecision(approved) {
-        let correct = false;
+        // Standardize UI fields
+        document.getElementById("ui-name").innerText = currentSubject.name;
+        document.getElementById("ui-reason").innerText = `"${currentSubject.reason}"`;
+        document.getElementById("ui-docs").innerText = currentSubject.idStatus;
+        document.getElementById("ui-docs").style.color = forgedID ? "#c0392b" : "#27ae60";
         
-        if (approved && !currentSubject.shouldDeny) correct = true;
-        if (!approved && currentSubject.shouldDeny) correct = true;
+        document.getElementById("ui-bio").innerText = "UNSCANNED";
+        document.getElementById("ui-bio").style.color = "#7f8c8d";
+        
+        // Reset 3D scanner warning light indicators
+        scannerLight.color.setHex(0xff9900);
+        scannerLight.intensity = 0.5;
 
-        if (correct) {
-            gameState.cash += 25;
-            updateLog("Correct protocol followed! Earned $25.");
+        // Slide the 3D document into place animation simulation
+        documentMesh.position.set(-2, 1.22, 2); // Start off screen
+        let slideInterval = setInterval(() => {
+            if(documentMesh.position.x < -0.6) {
+                documentMesh.position.x += 0.1;
+                documentMesh.position.z -= 0.08;
+            } else {
+                clearInterval(slideInterval);
+            }
+        }, 16);
+    }
+
+    function trigger3DScan() {
+        if(currentSubject.isScanned) return;
+        
+        document.getElementById("alert-log").innerText = "SYSTEM: Running radiation biometric fluid scan...";
+        
+        // Laser effect sequence
+        let flashes = 0;
+        let flashTimer = setInterval(() => {
+            scannerLight.intensity = scannerLight.intensity === 0 ? 3 : 0;
+            flashes++;
+            if(flashes > 6) {
+                clearInterval(flashTimer);
+                currentSubject.isScanned = true;
+                
+                // Display text scanner changes
+                const bioField = document.getElementById("ui-bio");
+                bioField.innerText = currentSubject.bioStatus;
+                
+                if(currentSubject.bioStatus.includes("CONTAMINATED")) {
+                    bioField.style.color = "#c0392b";
+                    scannerLight.color.setHex(0xff0000); // Red warning light
+                    scannerLight.intensity = 2.5;
+                    document.getElementById("alert-log").innerText = "WARNING: VIRAL BIO-SIGNATURE DETECTED!";
+                } else {
+                    bioField.style.color = "#27ae60";
+                    scannerLight.color.setHex(0x00ff00); // Safe Green light
+                    scannerLight.intensity = 1.5;
+                    document.getElementById("alert-log").innerText = "SYSTEM: Bio-scan completed. Entity clear.";
+                }
+            }
+        }, 120);
+    }
+
+    function submitDecision(approved) {
+        let accurateProtocol = false;
+        if(approved && !currentSubject.shouldDeny) accurateProtocol = true;
+        if(!approved && currentSubject.shouldDeny) accurateProtocol = true;
+
+        if (accurateProtocol) {
+            gameState.cash += 30;
+            document.getElementById("alert-log").innerText = "SUCCESS: Protocol match. Outpost bonus issued.";
+            document.getElementById("alert-log").style.color = "#2ecc71";
         } else {
-            gameState.cash = Math.max(0, gameState.cash - 50);
-            updateLog("PROTOCOL FAILURE! Infected or invalid entity processed.");
+            gameState.cash = Math.max(0, gameState.cash - 60);
+            document.getElementById("alert-log").innerText = "CRITICAL PENALTY: Breach protocol infraction logged!";
+            document.getElementById("alert-log").style.color = "#ff4444";
         }
 
-        // Update UI counters
         document.getElementById("cash-val").innerText = gameState.cash;
-        
-        // Progress day sequence
-        gameState.currentShiftPosition++;
-        if(gameState.currentShiftPosition >= 3) {
+        gameState.shiftCount++;
+
+        // Day progression sequence
+        if(gameState.shiftCount >= 3) {
             gameState.day++;
-            gameState.currentShiftPosition = 0;
+            gameState.shiftCount = 0;
             document.getElementById("day-val").innerText = gameState.day;
-            updateLog(`Day complete! Autosaving progress. Welcome to Day ${gameState.day}.`);
             autoSaveGame();
+            alert(`SHIFT ENDED: Day ${gameState.day - 1} complete. Auto-saved data encrypted.`);
         }
 
-        // Generate next survivor
-        generateSubject();
+        // Generate next round
+        generateNextSubject();
     }
 
-    function updateLog(message) {
-        document.getElementById("system-log").innerText = message;
-    }
-
-    // Save and Load logic via LocalStorage
+    // --- SAVES INFRASTRUCTURE ---
     function saveGame() {
-        localStorage.setItem("checkpoint_save", JSON.stringify(gameState));
-        updateLog("Game state saved successfully to LocalStorage!");
+        localStorage.setItem("bio_guard_3d_save", JSON.stringify(gameState));
+        document.getElementById("alert-log").innerText = "SYSTEM: Manual save backup committed safely.";
     }
 
     function autoSaveGame() {
-        localStorage.setItem("checkpoint_save", JSON.stringify(gameState));
+        localStorage.setItem("bio_guard_3d_save", JSON.stringify(gameState));
     }
 
     function loadGame() {
-        const savedData = localStorage.getItem("checkpoint_save");
-        if (savedData) {
-            gameState = JSON.parse(savedData);
+        const raw = localStorage.getItem("bio_guard_3d_save");
+        if(raw) {
+            gameState = JSON.parse(raw);
             document.getElementById("day-val").innerText = gameState.day;
             document.getElementById("cash-val").innerText = gameState.cash;
-            updateLog(`Loaded save file: Day ${gameState.day} restored.`);
-        } else {
-            updateLog("No previous save data found. Starting fresh!");
+            document.getElementById("alert-log").innerText = "SYSTEM: Welcome back. Crypt-save file restored.";
         }
     }
 
-    // Initialize Game on launch
+    // Launch Code execution
     window.onload = function() {
+        init3D();
+        animate();
         loadGame();
-        generateSubject();
+        generateNextSubject();
     };
 </script>
 
